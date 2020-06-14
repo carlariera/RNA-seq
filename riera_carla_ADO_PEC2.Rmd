@@ -1,0 +1,727 @@
+---
+title: "RNAseq - Bioconductor"
+author: "Carla Riera Segura"
+date: "14 de Junio de 2020"
+output: 
+  html_document:
+    toc: yes
+    toc_depth: 5
+lang: es
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+if(!require(BiocManager)) install.packages("BiocManager")
+if(!require(airway)) BiocManager::install("airway")
+if(!require(Rsamtools)) BiocManager::install("Rsamtools")
+if(!require(GenomicFeatures)) BiocManager::install("GenomicFeatures")
+if(!require(DESeq2)) BiocManager::install("DESeq2")
+if(!require(apeglm)) BiocManager::install("apeglm")
+if(!require(PoiClaClu)) BiocManager::install("PoiClaClu")
+if(!require(BiocParallel)) BiocManager::install("BiocParallel")
+if(!require(genefilter)) BiocManager::install("genefilter")
+if(!require(org.Hs.eg.db)) BiocManager::install("org.Hs.eg.db")
+if(!require(AnnotationDbi)) BiocManager::install("AnnotationDbi")
+if(!require(ReportingTools)) BiocManager::install("ReportingTools")
+if(!require(RUVSeq)) BiocManager::install("RUVSeq")
+if(!require(sva)) BiocManager::install("sva")
+if(!require(Gviz)) BiocManager::install("Gviz")
+
+if(!require(magrittr)) install.packages("magrittr", dep=TRUE)
+if(!require(dplyr)) install.packages("dplyr", dep=TRUE)
+if(!require(ggplot2)) install.packages("ggplot2", dep=TRUE)
+if(!require(pheatmap)) install.packages("pheatmap", dep=TRUE)
+if(!require(RColorBrewer)) install.packages("RColorBrewer", dep=TRUE)
+if(!require(ggbeeswarm)) install.packages("ggbeeswarm", dep=TRUE)
+```
+
+<div style="text-align: justify"> 
+
+## Resumen
+
+En este documento se presenta un análisis de datos de RNA-seq utilizando la herramienta R/Bioconductor. El flujo de trabajo comienza con dos ficheros preprocesados, *counts.csv* (contajes) y *targets.csv* (grupos y covariables), los cuales se preparan para proceder a realizar el análisis de expresión diferencial. Posteriormente, se sigue el flujo detallado en la web de Bioconductor: http://master.bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#aligning-reads-to-a-reference-genome. Los datos y el código para el análisis se pueden visualizar en un repositorio de github^[https://github.com/carlariera/RNA-seq.git].
+
+## Objetivos
+
+El objetivo de este estudio fue estudiar la expresión y regulación de genes específicos de tejido. Para ello se recolectaron datos de expresión (RNA-seq) pertencientes a un análisis de tiroides en donde se compara tres tipos de infiltración medidos en un total de 292 muestras pertenecientes a tres grupos: *not infiltrated tissues* (NIT), *small focal infiltrates* (SFI) y *extensive lymphoid infiltrates* (ELI). Así pues, se realizaron tres comparaciones NIT-SFI, NIT-ELI y SFI-ELI.
+
+## Materiales
+
+Los datos utilizados se cargaron de un estudio obtenido del repositorio *Genotype-Tissue Expression* (GTEx), en el cual se recolectaron muestras de 54 sitios de tejido no diseminado en casi 1000 individuos. Los datos fueron proporcionados a través de dos ficheros: *counts.csv* correspondiente a los contajes y *targets.csv* a los grupos y covariables.
+
+## Métodos
+
+### Preparación de los datos
+
+Para empezar con el estudio vamos a cargar los dos ficheros proporcionados, sobre los que debemos realizar alguna pequeña modificación para evitar errores durante el análisis.
+```{r}
+# Carga de los archivos targets y counts
+targets <- read.csv("~/Desktop/Datos omicos/PEC 2/RNA-seq/Materials/targets.csv", header=TRUE, sep=",")
+counts <- read.csv("~/Desktop/Datos omicos/PEC 2/RNA-seq/Materials/counts.csv", header=TRUE, row.names=1, sep=";")
+```
+
+La variable correspondiente al nombre de las muestras está presentada en un formato diferente (en el archivo *targets* la separación es mediante guiones y en el archivo *counts* mediante puntos). Así pues, es necesario la conversión al mismo formato para evitar errores posteriores. Para ello se ha decidido mantener el formato del archivo *counts*, sustituyendo los guiones por puntos en el archivo *targets*. Además, definiremos la variable *Group* como factor.
+```{r}
+# Sustitución de - por . en la variable Sample_Name del archivo targets
+targets$Sample_Name <- gsub("[-]", ".", targets$Sample_Name)
+
+# Definición de la variable Group como factor
+targets$Group <- factor(targets$Group)
+```
+
+El archivo *counts* presenta el código ENSEMBL incluyendo la versión. Dicho parámetro debe ser eliminado para evitar errores durante el análisis.
+```{r}
+# Eliminación de la versión del código ENSEMBL del archivo counts
+rownames(counts) <- gsub("\\..*", "", rownames(counts), fixed = FALSE)
+```
+
+Una vez realizados estos cambios, debemos seleccionar 30 muestras aleatoriamente, 10 de cada grupo. Para ello, primero dividiremos los datos del archivo *targets* en tres variables distintas según el grupo al que pertenecen. Posteriormente, fijaremos una semilla para que siempre se trabaje con las mismas muestras y extraeremos 10 muestras de cada grupo aleatoriamente con ayuda del comando *sample()* creando un dataset para cada grupo. Finalmente, para limpiar los datos, adjudicaremos como nombre de filas la variable *Sample_Name* y eliminaremos la duplicación.
+```{r}
+# Carga de las librerías necesarias
+library("dplyr")
+
+# División de las muestras en tres variables según la variable Group
+NIT_all <- subset(targets, targets$Group=="NIT")
+SFI_all <- subset(targets, targets$Group=="SFI")
+ELI_all <- subset(targets, targets$Group=="ELI")
+
+# Fijación de la semilla
+set.seed(12345)
+
+# Extracción aleatoria de 10 muestras de cada grupo
+n <- 10
+NIT <- sample(1:nrow(NIT_all), size=n, replace=FALSE)
+NIT <- NIT_all[NIT, ]
+SFI <- sample(1:nrow(SFI_all), size=n, replace=FALSE)
+SFI <- SFI_all[SFI, ]
+ELI <- sample(1:nrow(ELI_all), size=n, replace=FALSE)
+ELI <- ELI_all[ELI, ]
+
+# Ajudicación de Sample_Name como nombre de filas y eliminación de la duplicación
+rownames(NIT) <- NIT$Sample_Name
+NIT <- select(NIT, -Sample_Name)
+rownames(SFI) <- SFI$Sample_Name
+SFI <- select(SFI, -Sample_Name)
+rownames(ELI) <- ELI$Sample_Name
+ELI <- select(ELI, -Sample_Name)
+```
+
+Para acabar este apartado, vamos a crear las variables colData y countData de cada comparación (NITvsSFI, NITvsELI y SFIvsELI). Para ello, uniremos en una variable los grupos a comparar creando la variable colData y subsatearemos las columnas escogidas en el archivo *counts* a partir de la información de las filas de la variable colData creando la variable countData.
+```{r}
+# Comparación NITvsSFI
+colData_NIT_SFI <- rbind(NIT,SFI)
+countData_NIT_SFI <- counts[,rownames(colData_NIT_SFI)]
+
+# Comparación NITvsELI
+colData_NIT_ELI <- rbind(NIT,ELI)
+countData_NIT_ELI <- counts[,rownames(colData_NIT_ELI)]
+
+# Comparación SFIvsELI
+colData_SFI_ELI <- rbind(SFI,ELI)
+countData_SFI_ELI <- counts[,rownames(colData_SFI_ELI)]
+```
+
+### Comparación NITvsSFI
+
+#### Creación del objeto DESeqDataSet
+
+Vamos a construir el *DESeqDataSet* a partir de la matriz de conteo (countData) y la tabla de información de la muestra (colData) utilizando el comando *DESeqDataSetFromMatrix()* del paquete *DESeq2*.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("DESeq2")
+
+# Creación del objeto DESeqDataSet
+ddsMat_NIT_SFI <- DESeqDataSetFromMatrix(countData = countData_NIT_SFI, colData = colData_NIT_SFI, design = ~ Group)
+```
+
+#### Análisis exploratorio y visualización
+
+##### Prefiltrado del conjunto de datos
+
+La matriz de conteo con el *DESeqDataSet* contiene muchas filas con solo ceros y también muchas filas con solo unos pocos fragmentos en total. Con el fin de reducir el tamaño del objeto y aumentar la velocidad de nuestras funciones, vamos a eliminar las filas que tienen poca información sobre la cantidad de expresión génica. Para ello aplicamos la regla de filtrado más mínima que consiste en eliminar las filas del *DESeqDataSet* que no tienen recuentos, o que solamente tienen un único recuento en todas las muestras.
+```{r}
+# Número de filas iniciales
+nrow(ddsMat_NIT_SFI)
+
+# Aplicación de filtrado mínimo
+ddsMat_NIT_SFI_filtered <- ddsMat_NIT_SFI[rowSums(counts(ddsMat_NIT_SFI)) > 1,]
+
+# Número de filas mantenidas después del filtrado
+nrow(ddsMat_NIT_SFI_filtered)
+```
+
+Podemos observar que el tamaño del objeto ha disminuido.
+
+##### Transformación de logaritmo regularizado o rlog
+
+El paquete *DESeq2* ofrece la transformación rlog, la cual estabiliza la varianza a través de la media. Dicha transformación, a pesar de ser más sensible a los valores atípicos de conteo alto que VST (*Variance Stabilizing Transformation*), tiende a funcionar bien en conjuntos de datos pequeños (n<30) como es nuestro caso, donde tenemos un conjunto de datos de 20 muestras.
+
+Así pues, vamos a aplicar dicha transformación a los datos de conteo, obteniendo un objeto DESeqTransform que se basa en la clase SummarizedExperiment.
+```{r}
+# Aplicación de la transformación rlog
+rld <- rlog(ddsMat_NIT_SFI_filtered, blind = FALSE)
+
+# Visualización de las 3 primera filas de los datos transformados con rlog
+head(assay(rld), 3)
+```
+
+A continuación se muestra el efecto de la transformación a través de un diagrama de dispersión de recuentos transformados de dos muestras (primera contra segunda).
+```{r message=FALSE, fig.align='center', fig.width=7, fig.height=6}
+# Carga de las librerías necesarias
+library("dplyr")
+library("ggplot2")
+
+# Representación del gráfico de dispersión de recuentos transformados
+ddsMat_NIT_SFI_filtered <- estimateSizeFactors(ddsMat_NIT_SFI_filtered)
+
+df <- bind_rows(as_data_frame(assay(rld)[, 1:2]) %>% mutate(transformation = "rlog"))
+
+colnames(df)[1:2] <- c("x", "y")  
+
+ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
+  coord_fixed() + facet_grid( . ~ transformation)  
+```
+
+Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+
+##### Distancia de muestras
+
+Con el fin de evaluar la similitud general entre muestras, utilizamos la función *dist()* para calcular la distancia euclidiana entre ellas.
+```{r}
+# Cálculo de la distancia euclidiana entre muestras
+sampleDists <- dist(t(assay(rld)))
+head(sampleDists)
+```
+
+Procedemos a visualizar las distancias en un mapa de calor con ayuda de la función *pheatmap()*, proporcionando como argumento *clustering_distance* la matriz de distancias *sampleDists*.
+```{r message=FALSE, fig.align='center', fig.width=6, fig.height=4}
+# Carga de las librerías necesarias
+library("pheatmap")
+library("RColorBrewer")
+
+# Definicón de sampleDists como matriz
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(rld$Group, sep="-")
+colnames(sampleDistMatrix) <- NULL
+
+# Visualización del mapa de calor
+colors <- colorRampPalette(rev(brewer.pal(9,"Oranges")))(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+```
+
+##### Gráfico PCA
+
+Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
+```{r fig.align='center', fig.width=5, fig.height=5}
+# Visualización del gráfico PCA utilizando los datos rlog
+plotPCA(rld, intgroup = c("Group"))
+```
+
+#### Análisis de expresión diferencial
+
+##### Ejecución de la canalización de expresión diferencial
+
+Vamos a ejecutar la canalización de expresión diferencial en los recuentos sin procesar con la función *DESeq()*.
+```{r}
+# Canalización de expresión diferencial
+ddsMat_NIT_SFI <- DESeq(ddsMat_NIT_SFI, parallel =TRUE)
+```
+
+Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+
+##### Creación de la tabla de resultados
+
+Creamos la tabla de resultados con la función *results()* dejando de lado el argumento de contraste para extraer la comparación de los dos niveles de la variable *Group*.
+```{r}
+# Creación de la tabla de resultados
+res <- results(ddsMat_NIT_SFI, contrast=c("Group","NIT","SFI"))
+res
+```
+
+Vamos a mostrar la información sobre el significado de las columnas del objeto *res*.
+```{r}
+# Información sobre las columnas del objeto res
+mcols(res, use.names = TRUE)
+```
+
+Finalmente, mostramos un resumen de la variable *res*.
+```{r}
+# Visualización resumen de res
+summary(res)
+```
+
+#### Análisis de los resultados
+
+##### Gráficación de los resultados
+
+Vamos a visualizar los recuentos de un gen en particular con la función *plotCounts()* tomando como argumentos el DESeqDataSetFromMatrix, un nombre de gen y el grupo sobre el que trazar los recuentos.
+
+```{r message=FALSE, fig.align='center', fig.width=5, fig.height=4}
+# Selección del gen a mostrar
+topGene <- rownames(res)[which.min(res$padj)]
+
+# Representación del gráfico de los recuentos del gen
+plotCounts(ddsMat_NIT_SFI, gene=topGene, intgroup=c("Group"))
+```
+
+##### Anotación y exportación de los resultados
+
+La tabla de resultados obtenida hasta ahora, únicamente contiene los ID de los genes ENSEMBL. Para agregar más columnas informativas vamos a cargar los paquetes de anotación de Bioconductor para mapear varios esquemas de identificación entre sí.
+```{r message= FALSE}
+# Carga de las librerías necesarias
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+
+# Visualización de la lista de claves disponibles
+columns(org.Hs.eg.db)
+```
+
+Con la función *mapIds* procedemos a agregar columnas a nuestra tabla de resultados. En concreto, vamos a añadir el símbolo del gen y la identificación de Entrez.
+```{r}
+# Agregación columna símbolo del gen
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Agregación columna identificación de Entrez
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Visualización de la nueva tabla de resultados ordenada por el p-valor
+resOrdered <- res[order(res$pvalue),]
+head(resOrdered, 3)
+```
+
+Vamos a exportar la tabla de resultados en un archivo *.csv*.
+```{r}
+# Exportación de los resultados en fichero .csv
+resOrderedDF <- as.data.frame(resOrdered)
+write.csv(resOrderedDF, "./Results/results_NIT_SFI.csv")
+```
+
+Para obtener un fichero más sofisticado de los resultados, vamos a utilizar el paquete *ReportingTools* para generar automáticamente un documento HTML dinámico.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("ReportingTools")
+
+# Creación del fichero HTML
+htmlRep <- HTMLReport(shortName="Report_NIT_SFI", title="Report_NIT_SFI", reportDirectory="./Reports")
+publish(resOrderedDF, htmlRep)
+url <- finish(htmlRep)
+browseURL(url)
+```
+
+### Comparación NITvsELI
+
+#### Creación del objeto DESeqDataSet
+
+Vamos a construir el *DESeqDataSet* a partir de la matriz de conteo (countData) y la tabla de información de la muestra (colData) utilizando el comando *DESeqDataSetFromMatrix()* del paquete *DESeq2*.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("DESeq2")
+
+# Creación del objeto DESeqDataSet
+ddsMat_NIT_ELI <- DESeqDataSetFromMatrix(countData = countData_NIT_ELI, colData = colData_NIT_ELI, design = ~ Group)
+```
+
+#### Análisis exploratorio y visualización
+
+##### Prefiltrado del conjunto de datos
+
+La matriz de conteo con el *DESeqDataSet* contiene muchas filas con solo ceros y también muchas filas con solo unos pocos fragmentos en total. Con el fin de reducir el tamaño del objeto y aumentar la velocidad de nuestras funciones, vamos a eliminar las filas que tienen poca información sobre la cantidad de expresión génica. Para ello aplicamos la regla de filtrado más mínima que consiste en eliminar las filas del *DESeqDataSet* que no tienen recuentos, o que solamente tienen un único recuento en todas las muestras.
+```{r}
+# Número de filas iniciales
+nrow(ddsMat_NIT_ELI)
+
+# Aplicación de filtrado mínimo
+ddsMat_NIT_ELI_filtered <- ddsMat_NIT_ELI[rowSums(counts(ddsMat_NIT_ELI)) > 1,]
+
+# Número de filas mantenidas después del filtrado
+nrow(ddsMat_NIT_ELI_filtered)
+```
+
+Podemos observar que el tamaño del objeto ha disminuido.
+
+##### Transformación de logaritmo regularizado o rlog
+
+El paquete *DESeq2* ofrece la transformación rlog, la cual estabiliza la varianza a través de la media. Dicha transformación, a pesar de ser más sensible a los valores atípicos de conteo alto que VST (*Variance Stabilizing Transformation*), tiende a funcionar bien en conjuntos de datos pequeños (n<30) como es nuestro caso, donde tenemos un conjunto de datos de 20 muestras.
+
+Así pues, vamos a aplicar dicha transformación a los datos de conteo, obteniendo un objeto DESeqTransform que se basa en la clase SummarizedExperiment.
+```{r}
+# Aplicación de la transformación rlog
+rld <- rlog(ddsMat_NIT_ELI_filtered, blind = FALSE)
+
+# Visualización de las 3 primera filas de los datos transformados con rlog
+head(assay(rld), 3)
+```
+
+A continuación se muestra el efecto de la transformación a través de un diagrama de dispersión de recuentos transformados de dos muestras (primera contra segunda).
+```{r message=FALSE, fig.align='center', fig.width=7, fig.height=6}
+# Carga de las librerías necesarias
+library("dplyr")
+library("ggplot2")
+
+# Representación del gráfico de dispersión de recuentos transformados
+ddsMat_NIT_ELI_filtered <- estimateSizeFactors(ddsMat_NIT_ELI_filtered)
+
+df <- bind_rows(as_data_frame(assay(rld)[, 1:2]) %>% mutate(transformation = "rlog"))
+
+colnames(df)[1:2] <- c("x", "y")  
+
+ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
+  coord_fixed() + facet_grid( . ~ transformation)  
+```
+
+Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+
+##### Distancia de muestras
+
+Con el fin de evaluar la similitud general entre muestras, utilizamos la función *dist()* para calcular la distancia euclidiana entre ellas.
+```{r}
+# Cálculo de la distancia euclidiana entre muestras
+sampleDists <- dist(t(assay(rld)))
+head(sampleDists)
+```
+
+Procedemos a visualizar las distancias en un mapa de calor con ayuda de la función *pheatmap()*, proporcionando como argumento *clustering_distance* la matriz de distancias *sampleDists*.
+```{r message=FALSE, fig.align='center', fig.width=6, fig.height=4}
+# Carga de las librerías necesarias
+library("pheatmap")
+library("RColorBrewer")
+
+# Definicón de sampleDists como matriz
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(rld$Group, sep="-")
+colnames(sampleDistMatrix) <- NULL
+
+# Visualización del mapa de calor
+colors <- colorRampPalette(rev(brewer.pal(9,"Oranges")))(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+```
+
+##### Gráfico PCA
+
+Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
+```{r fig.align='center', fig.width=5, fig.height=5}
+# Visualización del gráfico PCA utilizando los datos rlog
+plotPCA(rld, intgroup = c("Group"))
+```
+
+#### Análisis de expresión diferencial
+
+##### Ejecución de la canalización de expresión diferencial
+
+Vamos a ejecutar la canalización de expresión diferencial en los recuentos sin procesar con la función *DESeq()*.
+```{r}
+# Canalización de expresión diferencial
+ddsMat_NIT_ELI <- DESeq(ddsMat_NIT_ELI, parallel =TRUE)
+```
+
+Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+
+##### Creación de la tabla de resultados
+
+Creamos la tabla de resultados con la función *results()* dejando de lado el argumento de contraste para extraer la comparación de los dos niveles de la variable *Group*.
+```{r}
+# Creación de la tabla de resultados
+res <- results(ddsMat_NIT_ELI, contrast=c("Group","NIT","ELI"))
+res
+```
+
+Vamos a mostrar la información sobre el significado de las columnas del objeto *res*.
+```{r}
+# Información sobre las columnas del objeto res
+mcols(res, use.names = TRUE)
+```
+
+Finalmente, mostramos un resumen de la variable *res*.
+```{r}
+# Visualización resumen de res
+summary(res)
+```
+
+#### Análisis de los resultados
+
+##### Gráficación de los resultados
+
+Vamos a visualizar los recuentos de un gen en particular con la función *plotCounts()* tomando como argumentos el DESeqDataSetFromMatrix, un nombre de gen y el grupo sobre el que trazar los recuentos.
+
+```{r message=FALSE, fig.align='center', fig.width=5, fig.height=4}
+# Selección del gen a mostrar
+topGene <- rownames(res)[which.min(res$padj)]
+
+# Representación del gráfico de los recuentos del gen
+plotCounts(ddsMat_NIT_ELI, gene=topGene, intgroup=c("Group"))
+```
+
+##### Anotación y exportación de los resultados
+
+La tabla de resultados obtenida hasta ahora, únicamente contiene los ID de los genes ENSEMBL. Para agregar más columnas informativas vamos a cargar los paquetes de anotación de Bioconductor para mapear varios esquemas de identificación entre sí.
+```{r message= FALSE}
+# Carga de las librerías necesarias
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+
+# Visualización de la lista de claves disponibles
+columns(org.Hs.eg.db)
+```
+
+Con la función *mapIds* procedemos a agregar columnas a nuestra tabla de resultados. En concreto, vamos a añadir el símbolo del gen y la identificación de Entrez.
+```{r}
+# Agregación columna símbolo del gen
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Agregación columna identificación de Entrez
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Visualización de la nueva tabla de resultados ordenada por el p-valor
+resOrdered <- res[order(res$pvalue),]
+head(resOrdered, 3)
+```
+
+Vamos a exportar la tabla de resultados en un archivo *.csv*.
+```{r}
+# Exportación de los resultados en fichero .csv
+resOrderedDF <- as.data.frame(resOrdered)
+write.csv(resOrderedDF, "./Results/results_NIT_ELI.csv")
+```
+
+Para obtener un fichero más sofisticado de los resultados, vamos a utilizar el paquete *ReportingTools* para generar automáticamente un documento HTML dinámico.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("ReportingTools")
+
+# Creación del fichero HTML
+htmlRep <- HTMLReport(shortName="Report_NIT_ELI", title="Report_NIT_ELI", reportDirectory="./Reports")
+publish(resOrderedDF, htmlRep)
+url <- finish(htmlRep)
+browseURL(url)
+```
+
+### Comparación SFIvsELI
+
+#### Creación del objeto DESeqDataSet
+
+Vamos a construir el *DESeqDataSet* a partir de la matriz de conteo (countData) y la tabla de información de la muestra (colData) utilizando el comando *DESeqDataSetFromMatrix()* del paquete *DESeq2*.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("DESeq2")
+
+# Creación del objeto DESeqDataSet
+ddsMat_SFI_ELI <- DESeqDataSetFromMatrix(countData = countData_SFI_ELI, colData = colData_SFI_ELI, design = ~ Group)
+```
+
+#### Análisis exploratorio y visualización
+
+##### Prefiltrado del conjunto de datos
+
+La matriz de conteo con el *DESeqDataSet* contiene muchas filas con solo ceros y también muchas filas con solo unos pocos fragmentos en total. Con el fin de reducir el tamaño del objeto y aumentar la velocidad de nuestras funciones, vamos a eliminar las filas que tienen poca información sobre la cantidad de expresión génica. Para ello aplicamos la regla de filtrado más mínima que consiste en eliminar las filas del *DESeqDataSet* que no tienen recuentos, o que solamente tienen un único recuento en todas las muestras.
+```{r}
+# Número de filas iniciales
+nrow(ddsMat_SFI_ELI)
+
+# Aplicación de filtrado mínimo
+ddsMat_SFI_ELI_filtered <- ddsMat_SFI_ELI[rowSums(counts(ddsMat_SFI_ELI)) > 1,]
+
+# Número de filas mantenidas después del filtrado
+nrow(ddsMat_SFI_ELI_filtered)
+```
+
+Podemos observar que el tamaño del objeto ha disminuido.
+
+##### Transformación de logaritmo regularizado o rlog
+
+El paquete *DESeq2* ofrece la transformación rlog, la cual estabiliza la varianza a través de la media. Dicha transformación, a pesar de ser más sensible a los valores atípicos de conteo alto que VST (*Variance Stabilizing Transformation*), tiende a funcionar bien en conjuntos de datos pequeños (n<30) como es nuestro caso, donde tenemos un conjunto de datos de 20 muestras.
+
+Así pues, vamos a aplicar dicha transformación a los datos de conteo, obteniendo un objeto DESeqTransform que se basa en la clase SummarizedExperiment.
+```{r}
+# Aplicación de la transformación rlog
+rld <- rlog(ddsMat_SFI_ELI_filtered, blind = FALSE)
+
+# Visualización de las 3 primera filas de los datos transformados con rlog
+head(assay(rld), 3)
+```
+
+A continuación se muestra el efecto de la transformación a través de un diagrama de dispersión de recuentos transformados de dos muestras (primera contra segunda).
+```{r message=FALSE, fig.align='center', fig.width=7, fig.height=6}
+# Carga de las librerías necesarias
+library("dplyr")
+library("ggplot2")
+
+# Representación del gráfico de dispersión de recuentos transformados
+ddsMat_SFI_ELI_filtered <- estimateSizeFactors(ddsMat_SFI_ELI_filtered)
+
+df <- bind_rows(as_data_frame(assay(rld)[, 1:2]) %>% mutate(transformation = "rlog"))
+
+colnames(df)[1:2] <- c("x", "y")  
+
+ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
+  coord_fixed() + facet_grid( . ~ transformation)  
+```
+
+Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+
+##### Distancia de muestras
+
+Con el fin de evaluar la similitud general entre muestras, utilizamos la función *dist()* para calcular la distancia euclidiana entre ellas.
+```{r}
+# Cálculo de la distancia euclidiana entre muestras
+sampleDists <- dist(t(assay(rld)))
+head(sampleDists)
+```
+
+Procedemos a visualizar las distancias en un mapa de calor con ayuda de la función *pheatmap()*, proporcionando como argumento *clustering_distance* la matriz de distancias *sampleDists*.
+```{r message=FALSE, fig.align='center', fig.width=6, fig.height=4}
+# Carga de las librerías necesarias
+library("pheatmap")
+library("RColorBrewer")
+
+# Definicón de sampleDists como matriz
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(rld$Group, sep="-")
+colnames(sampleDistMatrix) <- NULL
+
+# Visualización del mapa de calor
+colors <- colorRampPalette(rev(brewer.pal(9,"Oranges")))(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         col = colors)
+```
+
+##### Gráfico PCA
+
+Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
+```{r fig.align='center', fig.width=5, fig.height=5}
+# Visualización del gráfico PCA utilizando los datos rlog
+plotPCA(rld, intgroup = c("Group"))
+```
+
+#### Análisis de expresión diferencial
+
+##### Ejecución de la canalización de expresión diferencial
+
+Vamos a ejecutar la canalización de expresión diferencial en los recuentos sin procesar con la función *DESeq()*.
+```{r}
+# Canalización de expresión diferencial
+ddsMat_SFI_ELI <- DESeq(ddsMat_SFI_ELI, parallel =TRUE)
+```
+
+Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+
+##### Creación de la tabla de resultados
+
+Creamos la tabla de resultados con la función *results()* dejando de lado el argumento de contraste para extraer la comparación de los dos niveles de la variable *Group*.
+```{r}
+# Creación de la tabla de resultados
+res <- results(ddsMat_SFI_ELI, contrast=c("Group","SFI","ELI"))
+res
+```
+
+Vamos a mostrar la información sobre el significado de las columnas del objeto *res*.
+```{r}
+# Información sobre las columnas del objeto res
+mcols(res, use.names = TRUE)
+```
+
+Finalmente, mostramos un resumen de la variable *res*.
+```{r}
+# Visualización resumen de res
+summary(res)
+```
+
+#### Análisis de los resultados
+
+##### Gráficación de los resultados
+
+Vamos a visualizar los recuentos de un gen en particular con la función *plotCounts()* tomando como argumentos el DESeqDataSetFromMatrix, un nombre de gen y el grupo sobre el que trazar los recuentos.
+
+```{r message=FALSE, fig.align='center', fig.width=5, fig.height=4}
+# Selección del gen a mostrar
+topGene <- rownames(res)[which.min(res$padj)]
+
+# Representación del gráfico de los recuentos del gen
+plotCounts(ddsMat_SFI_ELI, gene=topGene, intgroup=c("Group"))
+```
+
+##### Anotación y exportación de los resultados
+
+La tabla de resultados obtenida hasta ahora, únicamente contiene los ID de los genes ENSEMBL. Para agregar más columnas informativas vamos a cargar los paquetes de anotación de Bioconductor para mapear varios esquemas de identificación entre sí.
+```{r message= FALSE}
+# Carga de las librerías necesarias
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+
+# Visualización de la lista de claves disponibles
+columns(org.Hs.eg.db)
+```
+
+Con la función *mapIds* procedemos a agregar columnas a nuestra tabla de resultados. En concreto, vamos a añadir el símbolo del gen y la identificación de Entrez.
+```{r}
+# Agregación columna símbolo del gen
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="SYMBOL",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Agregación columna identificación de Entrez
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+# Visualización de la nueva tabla de resultados ordenada por el p-valor
+resOrdered <- res[order(res$pvalue),]
+head(resOrdered, 3)
+```
+
+Vamos a exportar la tabla de resultados en un archivo *.csv*.
+```{r}
+# Exportación de los resultados en fichero .csv
+resOrderedDF <- as.data.frame(resOrdered)
+write.csv(resOrderedDF, "./Results/results_SFI_ELI.csv")
+```
+
+Para obtener un fichero más sofisticado de los resultados, vamos a utilizar el paquete *ReportingTools* para generar automáticamente un documento HTML dinámico.
+```{r message=FALSE}
+# Carga de las librerías necesarias
+library("ReportingTools")
+
+# Creación del fichero HTML
+htmlRep <- HTMLReport(shortName="Report_SFI_ELI", title="Report_SFI_ELI", reportDirectory="./Reports")
+publish(resOrderedDF, htmlRep)
+url <- finish(htmlRep)
+browseURL(url)
+```
+
+## Resultados
+
+Los resultados obtenidos se han ido mostrando y analizando durante la ejecución de los distintos apartados. Particularmente, en la sección "Análisis de resultados" de cada comparación se ha exportado un fichero *.csv* y otro *html* con los resultados del análisis.
+```{r}
+
+```
+&nbsp;
