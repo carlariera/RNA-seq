@@ -42,7 +42,7 @@ if(!require(ggbeeswarm)) install.packages("ggbeeswarm", dep=TRUE)
 
 ## Resumen
 
-En este documento se presenta un análisis de datos de RNA-seq utilizando la herramienta R/Bioconductor. El flujo de trabajo comienza con dos ficheros preprocesados, *counts.csv* (contajes) y *targets.csv* (grupos y covariables), los cuales se preparan para proceder a realizar el análisis de expresión diferencial. Posteriormente, se sigue el flujo detallado en la web de Bioconductor: http://master.bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#aligning-reads-to-a-reference-genome. Los datos y el código para el análisis se pueden visualizar en un repositorio de github^[https://github.com/carlariera/RNA-seq.git].
+En este documento se presenta un análisis de datos de RNA-seq utilizando la herramienta R/Bioconductor. El flujo de trabajo comienza con dos ficheros preprocesados, *counts.csv* (contajes) y *targets.csv* (grupos y covariables), los cuales se preparan para proceder a realizar el análisis de expresión diferencial. Posteriormente, se sigue el flujo detallado en la web de Bioconductor: http://master.bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#aligning-reads-to-a-reference-genome. Los datos y el código para el análisis se pueden visualizar en un repositorio de github^[https://github.com/carlariera/RNA-seq].
 
 ## Objetivos
 
