@@ -37,22 +37,39 @@ if(!require(pheatmap)) install.packages("pheatmap", dep=TRUE)
 if(!require(RColorBrewer)) install.packages("RColorBrewer", dep=TRUE)
 if(!require(ggbeeswarm)) install.packages("ggbeeswarm", dep=TRUE)
 ```
+&nbsp;
 
 <div style="text-align: justify"> 
 
 ## Resumen
 
 En este documento se presenta un análisis de datos de RNA-seq utilizando la herramienta R/Bioconductor. El flujo de trabajo comienza con dos ficheros preprocesados, *counts.csv* (contajes) y *targets.csv* (grupos y covariables), los cuales se preparan para proceder a realizar el análisis de expresión diferencial. Posteriormente, se sigue el flujo detallado en la web de Bioconductor: http://master.bioconductor.org/packages/release/workflows/vignettes/rnaseqGene/inst/doc/rnaseqGene.html#aligning-reads-to-a-reference-genome. Los datos y el código para el análisis se pueden visualizar en un repositorio de github^[https://github.com/carlariera/RNA-seq].
+```{r}
+
+```
+&nbsp;
 
 ## Objetivos
 
 El objetivo de este estudio fue estudiar la expresión y regulación de genes específicos de tejido. Para ello se recolectaron datos de expresión (RNA-seq) pertencientes a un análisis de tiroides en donde se compara tres tipos de infiltración medidos en un total de 292 muestras pertenecientes a tres grupos: *not infiltrated tissues* (NIT), *small focal infiltrates* (SFI) y *extensive lymphoid infiltrates* (ELI). Así pues, se realizaron tres comparaciones NIT-SFI, NIT-ELI y SFI-ELI.
+```{r}
+
+```
+&nbsp;
 
 ## Materiales
 
 Los datos utilizados se cargaron de un estudio obtenido del repositorio *Genotype-Tissue Expression* (GTEx), en el cual se recolectaron muestras de 54 sitios de tejido no diseminado en casi 1000 individuos. Los datos fueron proporcionados a través de dos ficheros: *counts.csv* correspondiente a los contajes y *targets.csv* a los grupos y covariables.
+```{r}
+
+```
+&nbsp;
 
 ## Métodos
+```{r}
+
+```
+&nbsp;
 
 ### Preparación de los datos
 
@@ -123,8 +140,13 @@ countData_NIT_ELI <- counts[,rownames(colData_NIT_ELI)]
 colData_SFI_ELI <- rbind(SFI,ELI)
 countData_SFI_ELI <- counts[,rownames(colData_SFI_ELI)]
 ```
+&nbsp;
 
 ### Comparación NITvsSFI
+```{r}
+
+```
+&nbsp;
 
 #### Creación del objeto DESeqDataSet
 
@@ -136,8 +158,13 @@ library("DESeq2")
 # Creación del objeto DESeqDataSet
 ddsMat_NIT_SFI <- DESeqDataSetFromMatrix(countData = countData_NIT_SFI, colData = colData_NIT_SFI, design = ~ Group)
 ```
+&nbsp;
 
 #### Análisis exploratorio y visualización
+```{r}
+
+```
+&nbsp;
 
 ##### Prefiltrado del conjunto de datos
 
@@ -154,6 +181,10 @@ nrow(ddsMat_NIT_SFI_filtered)
 ```
 
 Podemos observar que el tamaño del objeto ha disminuido.
+```{r}
+
+```
+&nbsp;
 
 ##### Transformación de logaritmo regularizado o rlog
 
@@ -186,6 +217,10 @@ ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
 ```
 
 Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+```{r}
+
+```
+&nbsp;
 
 ##### Distancia de muestras
 
@@ -214,16 +249,22 @@ pheatmap(sampleDistMatrix,
          clustering_distance_cols = sampleDists,
          col = colors)
 ```
+&nbsp;
 
 ##### Gráfico PCA
 
 Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
-```{r fig.align='center', fig.width=5, fig.height=5}
+```{r fig.align='center'}
 # Visualización del gráfico PCA utilizando los datos rlog
 plotPCA(rld, intgroup = c("Group"))
 ```
+&nbsp;
 
 #### Análisis de expresión diferencial
+```{r}
+
+```
+&nbsp;
 
 ##### Ejecución de la canalización de expresión diferencial
 
@@ -234,6 +275,10 @@ ddsMat_NIT_SFI <- DESeq(ddsMat_NIT_SFI, parallel =TRUE)
 ```
 
 Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+```{r}
+
+```
+&nbsp;
 
 ##### Creación de la tabla de resultados
 
@@ -255,8 +300,13 @@ Finalmente, mostramos un resumen de la variable *res*.
 # Visualización resumen de res
 summary(res)
 ```
+&nbsp;
 
 #### Análisis de los resultados
+```{r}
+
+```
+&nbsp;
 
 ##### Gráficación de los resultados
 
@@ -269,6 +319,7 @@ topGene <- rownames(res)[which.min(res$padj)]
 # Representación del gráfico de los recuentos del gen
 plotCounts(ddsMat_NIT_SFI, gene=topGene, intgroup=c("Group"))
 ```
+&nbsp;
 
 ##### Anotación y exportación de los resultados
 
@@ -321,8 +372,13 @@ publish(resOrderedDF, htmlRep)
 url <- finish(htmlRep)
 browseURL(url)
 ```
+&nbsp;
 
 ### Comparación NITvsELI
+```{r}
+
+```
+&nbsp;
 
 #### Creación del objeto DESeqDataSet
 
@@ -334,8 +390,13 @@ library("DESeq2")
 # Creación del objeto DESeqDataSet
 ddsMat_NIT_ELI <- DESeqDataSetFromMatrix(countData = countData_NIT_ELI, colData = colData_NIT_ELI, design = ~ Group)
 ```
+&nbsp;
 
 #### Análisis exploratorio y visualización
+```{r}
+
+```
+&nbsp;
 
 ##### Prefiltrado del conjunto de datos
 
@@ -352,6 +413,10 @@ nrow(ddsMat_NIT_ELI_filtered)
 ```
 
 Podemos observar que el tamaño del objeto ha disminuido.
+```{r}
+
+```
+&nbsp;
 
 ##### Transformación de logaritmo regularizado o rlog
 
@@ -384,6 +449,10 @@ ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
 ```
 
 Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+```{r}
+
+```
+&nbsp;
 
 ##### Distancia de muestras
 
@@ -412,16 +481,22 @@ pheatmap(sampleDistMatrix,
          clustering_distance_cols = sampleDists,
          col = colors)
 ```
+&nbsp;
 
 ##### Gráfico PCA
 
 Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
-```{r fig.align='center', fig.width=5, fig.height=5}
+```{r fig.align='center'}
 # Visualización del gráfico PCA utilizando los datos rlog
 plotPCA(rld, intgroup = c("Group"))
 ```
+&nbsp;
 
 #### Análisis de expresión diferencial
+```{r}
+
+```
+&nbsp;
 
 ##### Ejecución de la canalización de expresión diferencial
 
@@ -432,6 +507,10 @@ ddsMat_NIT_ELI <- DESeq(ddsMat_NIT_ELI, parallel =TRUE)
 ```
 
 Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+```{r}
+
+```
+&nbsp;
 
 ##### Creación de la tabla de resultados
 
@@ -453,8 +532,13 @@ Finalmente, mostramos un resumen de la variable *res*.
 # Visualización resumen de res
 summary(res)
 ```
+&nbsp;
 
 #### Análisis de los resultados
+```{r}
+
+```
+&nbsp;
 
 ##### Gráficación de los resultados
 
@@ -467,6 +551,7 @@ topGene <- rownames(res)[which.min(res$padj)]
 # Representación del gráfico de los recuentos del gen
 plotCounts(ddsMat_NIT_ELI, gene=topGene, intgroup=c("Group"))
 ```
+&nbsp;
 
 ##### Anotación y exportación de los resultados
 
@@ -519,8 +604,13 @@ publish(resOrderedDF, htmlRep)
 url <- finish(htmlRep)
 browseURL(url)
 ```
+&nbsp;
 
 ### Comparación SFIvsELI
+```{r}
+
+```
+&nbsp;
 
 #### Creación del objeto DESeqDataSet
 
@@ -532,8 +622,13 @@ library("DESeq2")
 # Creación del objeto DESeqDataSet
 ddsMat_SFI_ELI <- DESeqDataSetFromMatrix(countData = countData_SFI_ELI, colData = colData_SFI_ELI, design = ~ Group)
 ```
+&nbsp;
 
 #### Análisis exploratorio y visualización
+```{r}
+
+```
+&nbsp;
 
 ##### Prefiltrado del conjunto de datos
 
@@ -550,6 +645,10 @@ nrow(ddsMat_SFI_ELI_filtered)
 ```
 
 Podemos observar que el tamaño del objeto ha disminuido.
+```{r}
+
+```
+&nbsp;
 
 ##### Transformación de logaritmo regularizado o rlog
 
@@ -582,6 +681,10 @@ ggplot(df, aes(x = x, y = y)) + geom_hex(bins = 80) +
 ```
 
 Podemos ver como rlog comprime las diferencias para los genes de recuento bajo (esquina inferior izquierda), para los cuales los datos proporcionan poca información sobre la expresión diferencial.
+```{r}
+
+```
+&nbsp;
 
 ##### Distancia de muestras
 
@@ -610,16 +713,22 @@ pheatmap(sampleDistMatrix,
          clustering_distance_cols = sampleDists,
          col = colors)
 ```
+&nbsp;
 
 ##### Gráfico PCA
 
 Ahora vamos a visualizar de otra forma las distancias muestra a muestra a través de un análisis de componentes principales (PCA) utilizando los datos rlog. La variable *Group* se especifica por *intgroup* ya que es el grupo interesante para etiquetar las muestras.
-```{r fig.align='center', fig.width=5, fig.height=5}
+```{r fig.align='center'}
 # Visualización del gráfico PCA utilizando los datos rlog
 plotPCA(rld, intgroup = c("Group"))
 ```
+&nbsp;
 
 #### Análisis de expresión diferencial
+```{r}
+
+```
+&nbsp;
 
 ##### Ejecución de la canalización de expresión diferencial
 
@@ -630,6 +739,10 @@ ddsMat_SFI_ELI <- DESeq(ddsMat_SFI_ELI, parallel =TRUE)
 ```
 
 Dicha función devuelve un DESeqDataSet que contiene todos los parámetros ajustados dentro de él.
+```{r}
+
+```
+&nbsp;
 
 ##### Creación de la tabla de resultados
 
@@ -651,8 +764,13 @@ Finalmente, mostramos un resumen de la variable *res*.
 # Visualización resumen de res
 summary(res)
 ```
+&nbsp;
 
 #### Análisis de los resultados
+```{r}
+
+```
+&nbsp;
 
 ##### Gráficación de los resultados
 
@@ -665,6 +783,7 @@ topGene <- rownames(res)[which.min(res$padj)]
 # Representación del gráfico de los recuentos del gen
 plotCounts(ddsMat_SFI_ELI, gene=topGene, intgroup=c("Group"))
 ```
+&nbsp;
 
 ##### Anotación y exportación de los resultados
 
@@ -717,6 +836,7 @@ publish(resOrderedDF, htmlRep)
 url <- finish(htmlRep)
 browseURL(url)
 ```
+&nbsp;
 
 ## Resultados
 
